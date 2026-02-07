@@ -26,12 +26,25 @@ No compiling, no heavy setup. Just pip and run.
 
 ```bash
 pip install pipclaw
-pipclaw run
+pipclaw start
 ```
 
 ## 🛠 The Philosophy
 
 The trend in AI agents is moving towards massive complexity. PipClaw moves towards clarity. Most developers don't need a 400,000-line black box. They need a reliable, auditable kernel that handles the agent loop and tool-calling while remaining light enough to be modified in minutes. PipClaw is the "distilled essence" of an autonomous bot.
+
+## 🔌 Connectors
+
+PipClaw allows you to interact with your agent through multiple channels:
+
+- **Terminal Mode**: Standard interactive CLI (default).
+- **Telegram Mode**: No external dependencies. Just create a bot via [@BotFather](https://t.me/botfather) and provide your token during setup.
+- **WhatsApp Mode**: Requires **Node.js** (v22.17.0 recommended) to run the lightweight bridge. The agent will show a QR code in your terminal for linking.
+
+```bash
+# To change your mode or LLM settings
+pipclaw config
+```
 
 ## 📂 Project Structure
 

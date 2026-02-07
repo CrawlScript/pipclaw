@@ -35,6 +35,7 @@ class TelegramConnector(object):
         
         @self.bot.message_handler(func=lambda message: message.from_user.id == self.authorized_user_id)
         def handle_message(message):
+            print(f"📩 Telegram: {message.text}")
             callback(message.text)
             
         @self.bot.message_handler(func=lambda message: message.from_user.id != self.authorized_user_id)
