@@ -1,7 +1,7 @@
 import os
 from .config import ConfigManager
 from .kernel import PipClaw
-from .connectors import TelegramConnector, TerminalConnector, WhatsAppConnector, WhatsAppWebConnector
+from .connectors import TelegramConnector, TerminalConnector, WhatsAppConnector
 
 def setup_wizard():
     print("\n--- 🐈 PipClaw Setup Wizard ---")
@@ -21,9 +21,8 @@ def setup_wizard():
     print("\n[2/3] Interaction Mode")
     print("1. Terminal Mode")
     print("2. Telegram Mode")
-    print("3. WhatsApp Cloud API (Requires Meta Dev Account)")
-    print("4. WhatsApp Web (Requires QR Scan + Playwright)")
-    choice = input("Select mode (1, 2, 3, or 4): ").strip()
+    print("3. WhatsApp Mode (Scan QR Code)")
+    choice = input("Select mode (1, 2, or 3): ").strip()
 
     if choice == "2":
         config["preferred_mode"] = "telegram"
@@ -33,14 +32,8 @@ def setup_wizard():
         config["authorized_user_id"] = int(user_id) if user_id.isdigit() else 0
     elif choice == "3":
         config["preferred_mode"] = "whatsapp"
-        print("\n--- 🛠 WhatsApp Cloud Setup ---")
-        config["whatsapp_token"] = input("Permanent Access Token: ").strip()
-        config["whatsapp_phone_number_id"] = input("Phone Number ID: ").strip()
-        config["whatsapp_verify_token"] = input("Webhook Verify Token: ").strip()
-    elif choice == "4":
-        config["preferred_mode"] = "whatsapp_web"
-        print("\n--- 🛠 WhatsApp Web Setup ---")
-        print("[*] No tokens needed. You will scan a QR code on first run.")
+        print("\n--- 🛠 WhatsApp Setup ---")
+        print("[*] No tokens needed. You will scan a QR code in your terminal on run.")
     else:
         config["preferred_mode"] = "terminal"
 
@@ -59,13 +52,7 @@ def main():
     if mode == "telegram":
         connector = TelegramConnector(config["telegram_token"], config["authorized_user_id"])
     elif mode == "whatsapp":
-        connector = WhatsAppConnector(
-            config["whatsapp_token"], 
-            config["whatsapp_phone_number_id"], 
-            config["whatsapp_verify_token"]
-        )
-    elif mode == "whatsapp_web":
-        connector = WhatsAppWebConnector(config.get("whatsapp_web_session"))
+        connector = WhatsAppConnector()
     else:
         connector = TerminalConnector()
 
@@ -73,7 +60,7 @@ def main():
         print(f"\n[❌] API Key missing. Please run again or edit {ConfigManager.CONFIG_FILE}")
         return
     
-    app = PipClaw(config, connector, system_prompt=ConfigManager.SYSTEM_PROMPT)
+    app = PipClaw(config, connector, system_prompt=ConfigManager.get_full_prompt())
     app.run()
 
 if __name__ == "__main__":

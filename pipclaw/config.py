@@ -1,10 +1,46 @@
 import json
+import os
+import shutil
 from pathlib import Path
 
-class ConfigManager:
-    # We force the model to speak ONLY in JSON. 
-    # This is universal for both API and CLI tools.
-    SYSTEM_PROMPT = (
+class SkillManager(object):
+    HOME_SKILLS_DIR = Path.home() / ".pipclaw" / "skills"
+    PKG_SKILLS_DIR = Path(__file__).parent / "skills"
+
+    @classmethod
+    def sync_skills(cls):
+        """Copy skills from package to ~/.pipclaw/skills if not exists."""
+        if not cls.HOME_SKILLS_DIR.exists():
+            cls.HOME_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+        
+        if cls.PKG_SKILLS_DIR.exists():
+            for skill_file in cls.PKG_SKILLS_DIR.glob("*.md"):
+                dest = cls.HOME_SKILLS_DIR / skill_file.name
+                if not dest.exists():
+                    shutil.copy(skill_file, dest)
+
+    @classmethod
+    def get_skills_prompt(cls):
+        """Read all skills and format them for the system prompt."""
+        if not cls.HOME_SKILLS_DIR.exists():
+            return ""
+        
+        skills_text = "\n\nAvailable Skills:\n"
+        for skill_file in cls.HOME_SKILLS_DIR.glob("*.md"):
+            try:
+                content = skill_file.read_text(encoding="utf-8")
+                # We strip the frontmatter for the prompt to save tokens
+                if content.startswith("---"):
+                    parts = content.split("---", 2)
+                    if len(parts) >= 3:
+                        content = parts[2].strip()
+                skills_text += f"\n--- Skill: {skill_file.stem} ---\n{content}\n"
+            except Exception:
+                continue
+        return skills_text
+
+class ConfigManager(object):
+    BASE_SYSTEM_PROMPT = (
         "You are PipClaw, an autonomous AI agent. "
         "You MUST always respond with a SINGLE valid JSON object. "
         "Do not include any text outside the JSON block.\n\n"
@@ -32,10 +68,7 @@ class ConfigManager:
         "base_url": "https://api.deepseek.com",
         "telegram_token": "your-bot-token-here",
         "authorized_user_id": 0,
-        "whatsapp_token": "your-whatsapp-token-here",
-        "whatsapp_phone_number_id": "your-phone-id-here",
-        "whatsapp_verify_token": "your-verify-token-here",
-        "whatsapp_web_session": "~/.pipclaw/wa_session",
+        "whatsapp_authorized_id": None,
         "preferred_mode": "terminal"
     }
     CONFIG_DIR = Path.home() / ".pipclaw"
@@ -49,7 +82,12 @@ class ConfigManager:
 
     @classmethod
     def save(cls, config):
-        config.pop("system_prompt", None)
         with open(cls.CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=4)
         print(f"[*] Config saved to {cls.CONFIG_FILE}")
+
+    @classmethod
+    def get_full_prompt(cls):
+        """Combine base prompt with synchronized skills."""
+        SkillManager.sync_skills()
+        return cls.BASE_SYSTEM_PROMPT + SkillManager.get_skills_prompt()

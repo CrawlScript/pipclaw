@@ -1,12 +1,13 @@
-import telebot
 import os
 import json
-import urllib.request
+import subprocess
 import threading
-import time
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import telebot
+import shutil
+import random
+from .config import ConfigManager
 
-class TerminalConnector:
+class TerminalConnector(object):
     def listen(self, callback):
         print("\n--- PipClaw Kernel Active (Terminal Mode) ---")
         while True:
@@ -20,11 +21,10 @@ class TerminalConnector:
         print(f"\r🐈 PipClaw: {message}\n👤 You: ", end="", flush=True)
 
     def send_file(self, path):
-        # Expand ~ to home directory if present
         full_path = os.path.expanduser(path)
         print(f"\r🐈 PipClaw: [FILE SENT] {os.path.abspath(full_path)}\n👤 You: ", end="", flush=True)
 
-class TelegramConnector:
+class TelegramConnector(object):
     def __init__(self, token, authorized_user_id):
         self.bot = telebot.TeleBot(token)
         self.authorized_user_id = int(authorized_user_id)
@@ -50,7 +50,6 @@ class TelegramConnector:
             print(f"[!] Telegram Send Error: {e}")
 
     def send_file(self, path):
-        # Expand ~ to home directory if present
         path = os.path.expanduser(path)
         try:
             with open(path, 'rb') as f:
@@ -58,147 +57,114 @@ class TelegramConnector:
         except Exception as e:
             self.send(f"Error sending file: {str(e)}")
 
-class WhatsAppConnector:
-    """
-    WhatsApp Cloud API Connector (Zero-Dependency)
-    """
-    def __init__(self, token, phone_number_id, verify_token, port=8080):
-        self.token = token
-        self.phone_number_id = phone_number_id
-        self.verify_token = verify_token
-        self.port = port
+class WhatsAppConnector(object):
+    def __init__(self):
+        self.process = None
         self.callback = None
         self.active_recipient = None
+        self.config = ConfigManager.load()
+        self.authorized_id = self.config.get("whatsapp_authorized_id")
+        self.verify_code = str(random.randint(100000, 999999))
+        self.last_sent_text = None
+        self.bridge_path = os.path.join(os.path.dirname(__file__), "bridge.js")
+
+    def _ensure_node(self):
+        if not shutil.which("node"):
+            print("[❌] Node.js not found. Please install Node.js to use WhatsApp mode.")
+            return False
+        return True
+
+    def _ensure_deps(self):
+        # Check if packages are already available (locally or globally)
+        check_script = "try { require('@whiskeysockets/baileys'); require('qrcode-terminal'); process.exit(0); } catch(e) { process.exit(1); }"
+        result = subprocess.run(["node", "-e", check_script], capture_output=True)
+        
+        if result.returncode == 0:
+            return
+
+        print("[*] Installing WhatsApp bridge dependencies globally...")
+        try:
+            # Attempt global install as requested
+            subprocess.run(["npm", "install", "-g", "@whiskeysockets/baileys", "qrcode-terminal", "pino"], check=True)
+        except subprocess.CalledProcessError:
+            print("[!] Global install failed (permissions?). Attempting local install...")
+            subprocess.run(["npm", "install", "@whiskeysockets/baileys", "qrcode-terminal", "pino"], check=True)
 
     def listen(self, callback):
+        if not self._ensure_node(): return
+        self._ensure_deps()
         self.callback = callback
-        connector = self
+        
+        # Prepare environment to find global node_modules
+        env = os.environ.copy()
+        try:
+            npm_root = subprocess.check_output(["npm", "root", "-g"], text=True).strip()
+            # Combine existing NODE_PATH with global root
+            existing_path = env.get("NODE_PATH", "")
+            env["NODE_PATH"] = f"{npm_root}{os.pathsep}{existing_path}" if existing_path else npm_root
+        except:
+            pass
 
-        class WhatsAppWebhookHandler(BaseHTTPRequestHandler):
-            def do_GET(self):
-                from urllib.parse import urlparse, parse_qs
-                query = parse_qs(urlparse(self.path).query)
-                hub_mode = query.get('hub.mode', [''])[0]
-                hub_token = query.get('hub.verify_token', [''])[0]
-                hub_challenge = query.get('hub.challenge', [''])[0]
+        self.process = subprocess.Popen(
+            ["node", self.bridge_path],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=None,
+            env=env, text=True, bufsize=1
+        )
 
-                if hub_mode == 'subscribe' and hub_token == connector.verify_token:
-                    self.send_response(200)
-                    self.end_headers()
-                    self.wfile.write(hub_challenge.encode())
+        def output_reader():
+            for line in iter(self.process.stdout.readline, ""):
+                if line.startswith("JSON_EVENT:"):
+                    try:
+                        event = json.loads(line[11:])
+                        if event["type"] == "message":
+                            sender = event["from"]
+                            text = event["text"].strip()
+                            from_me = event.get("fromMe", False)
+
+                            if not self.authorized_id:
+                                if text == self.verify_code:
+                                    self.authorized_id = sender
+                                    self.config["whatsapp_authorized_id"] = sender
+                                    ConfigManager.save(self.config)
+                                    print(f"\n[⭐] AUTH SUCCESS! PipClaw is now locked to: {sender}")
+                                    self.send("🐈 Verification Successful! I am now your personal agent.")
+                                    continue
+                                else:
+                                    continue
+
+                            if sender != self.authorized_id:
+                                continue
+
+                            if from_me and text == self.last_sent_text:
+                                continue
+
+                            print(f"📩 WhatsApp: {text}")
+                            self.active_recipient = sender
+                            if self.callback:
+                                self.callback(text)
+
+                        elif event["type"] == "connected":
+                            if not self.authorized_id:
+                                print(f"\n[🔐] WHATSAPP VERIFICATION REQUIRED")
+                                print(f"[*] PLEASE SEND THIS CODE TO YOURSELF ON WHATSAPP: {self.verify_code}")
+                            else:
+                                print(f"\n[✅] WhatsApp Active")
+
+                    except Exception as e:
+                        print(f"[!] Bridge Parse Error: {e}")
                 else:
-                    self.send_response(403)
-                    self.end_headers()
+                    print(line, end="")
 
-            def do_POST(self):
-                content_length = int(self.headers.get('Content-Length', 0))
-                post_data = self.rfile.read(content_length)
-                try:
-                    payload = json.loads(post_data.decode('utf-8'))
-                    entry = payload.get('entry', [{}])[0]
-                    changes = entry.get('changes', [{}])[0].get('value', {})
-                    if 'messages' in changes:
-                        msg = changes['messages'][0]
-                        sender_id = msg['from']
-                        text = msg.get('text', {}).get('body', '')
-                        connector.active_recipient = sender_id
-                        if connector.callback and text:
-                            connector.callback(text)
-                except Exception as e:
-                    print(f"[!] WhatsApp Webhook Parse Error: {e}")
-                self.send_response(200)
-                self.end_headers()
-
-            def log_message(self, format, *args): return
-
-        self.server = HTTPServer(('', self.port), WhatsAppWebhookHandler)
-        print(f"\n--- PipClaw Kernel Active (WhatsApp Cloud Mode) ---")
-        print(f"[*] Webhook listening on port {self.port}")
-        
-        server_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-        server_thread.start()
-        server_thread.join()
+        threading.Thread(target=output_reader, daemon=True).start()
+        self.process.wait()
 
     def send(self, message):
-        if not self.active_recipient:
-            print("[!] WhatsApp Error: No active recipient ID found.")
-            return
-
-        url = f"https://graph.facebook.com/v17.0/{self.phone_number_id}/messages"
-        headers = {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}
-        payload = {
-            "messaging_product": "whatsapp",
-            "to": self.active_recipient,
-            "type": "text",
-            "text": {"body": message}
-        }
-        req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
-        try:
-            with urllib.request.urlopen(req) as response:
-                return json.loads(response.read().decode())
-        except Exception as e:
-            print(f"[!] WhatsApp Send Error: {e}")
+        if not self.process or not (self.active_recipient or self.authorized_id): return
+        recipient = self.active_recipient or self.authorized_id
+        self.last_sent_text = message
+        payload = {"to": recipient, "text": message}
+        self.process.stdin.write(f"SEND:{json.dumps(payload)}\n")
+        self.process.stdin.flush()
 
     def send_file(self, path):
-        path = os.path.expanduser(path)
-        self.send(f"📦 [File Attachment]: {os.path.abspath(path)}")
-
-class WhatsAppWebConnector:
-    """
-    WhatsApp Web Connector (Optional Dependency: playwright)
-    Requires: pip install playwright && playwright install chromium
-    """
-    def __init__(self, session_dir=".pipclaw/wa_session"):
-        self.session_dir = os.path.expanduser(session_dir)
-        self.page = None
-        self.callback = None
-
-    def listen(self, callback):
-        try:
-            from playwright.sync_api import sync_playwright
-        except ImportError:
-            print("\n[!] WhatsApp Web requires 'playwright'.")
-            print("[*] Please run: pip install playwright && playwright install chromium")
-            return
-
-        self.callback = callback
-        print(f"\n--- PipClaw Kernel Active (WhatsApp Web Mode) ---")
-        print(f"[*] Session stored in: {self.session_dir}")
-        print("[*] Please scan the QR code if prompted.")
-        
-        with sync_playwright() as p:
-            browser = p.chromium.launch_persistent_context(
-                user_data_dir=self.session_dir,
-                headless=False
-            )
-            self.page = browser.pages[0]
-            self.page.goto("https://web.whatsapp.com")
-            
-            last_msg_id = None
-            while True:
-                try:
-                    messages = self.page.query_selector_all("div.message-in")
-                    if messages:
-                        last_msg = messages[-1]
-                        text_element = last_msg.query_selector("span.selectable-text")
-                        if text_element:
-                            text = text_element.inner_text()
-                            msg_id = last_msg.get_attribute("data-id")
-                            if msg_id != last_msg_id:
-                                last_msg_id = msg_id
-                                if self.callback:
-                                    self.callback(text)
-                except Exception: pass
-                time.sleep(2)
-
-    def send(self, message):
-        if not self.page: return
-        try:
-            input_selector = "div[contenteditable='true'][data-tab='10']"
-            self.page.fill(input_selector, message)
-            self.page.press(input_selector, "Enter")
-        except Exception as e:
-            print(f"[!] WhatsApp Web Send Error: {e}")
-
-    def send_file(self, path):
-        self.send(f"📦 [File Attachment]: {os.path.abspath(os.path.expanduser(path))}")
+        self.send(f"📦 [File]: {os.path.abspath(os.path.expanduser(path))}")

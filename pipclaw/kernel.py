@@ -5,13 +5,13 @@ import re
 from .providers import Engine
 from .tools import ShellTool, FileTool
 
-class Memory:
+class Memory(object):
     def __init__(self, system_prompt):
         self.history = [{"role": "system", "content": system_prompt}]
     def add(self, role, content): self.history.append({"role": role, "content": content})
     def get_all(self): return self.history
 
-class PipClaw:
+class PipClaw(object):
     def __init__(self, config, connector, system_prompt):
         self.engine = Engine(config)
         self.connector = connector

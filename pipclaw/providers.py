@@ -2,7 +2,7 @@ import json
 import urllib.request
 import urllib.error
 
-class Engine:
+class Engine(object):
     def __init__(self, config):
         self.api_key = config["api_key"]
         self.base_url = config["base_url"].rstrip('/')

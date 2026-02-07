@@ -1,7 +1,7 @@
 import subprocess
 import os
 
-class ShellTool:
+class ShellTool(object):
     @staticmethod
     def execute(command):
         """Executes a shell command and returns the output."""
@@ -18,7 +18,7 @@ class ShellTool:
         except Exception as e:
             return f"Error executing command: {str(e)}"
 
-class FileTool:
+class FileTool(object):
     @staticmethod
     def read(path):
         """Reads a file and returns its content."""
