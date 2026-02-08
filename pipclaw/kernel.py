@@ -3,13 +3,22 @@ import queue
 import json
 import re
 from .providers import Engine
-from .tools import ShellTool, FileTool, TimerTool
+from .tools import ShellTool, FileTool, TimerTool, SessionTool
 
 class Memory(object):
     def __init__(self, system_prompt):
+        self.system_prompt = system_prompt
         self.history = [{"role": "system", "content": system_prompt}]
-    def add(self, role, content): self.history.append({"role": role, "content": content})
-    def get_all(self): return self.history
+    
+    def add(self, role, content): 
+        self.history.append({"role": role, "content": content})
+    
+    def get_all(self): 
+        return self.history
+
+    def reset(self):
+        """Clears the history except for the system prompt."""
+        self.history = [{"role": "system", "content": self.system_prompt}]
 
 class PipClaw(object):
     def __init__(self, config, connector, system_prompt):
@@ -90,6 +99,12 @@ class PipClaw(object):
                     elif name == "wait":
                         self.connector.send(f"⏳ Waiting {args.get('seconds')}s...")
                         result = TimerTool.wait(args.get("seconds"))
+                    elif name == "reset_session":
+                        self.memory.reset()
+                        self.connector.send("✨ Session reset! Starting fresh.")
+                        result = "Success: Session history cleared."
+                        # Break inner loop to start with fresh memory on next user input
+                        break
                     
                     if self.debug:
                         print(f"\n    [Tool Output: {name}]\n    {result}\n")

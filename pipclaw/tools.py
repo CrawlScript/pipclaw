@@ -50,3 +50,9 @@ class TimerTool(object):
             return f"Waited for {secs} seconds."
         except Exception as e:
             return f"Timer error: {str(e)}"
+
+class SessionTool(object):
+    @staticmethod
+    def reset():
+        """Returns a signal string that the kernel will use to reset the session."""
+        return "SESSION_RESET_SIGNAL"

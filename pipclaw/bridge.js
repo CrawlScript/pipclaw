@@ -10,8 +10,11 @@ const path = require("path");
 const os = require("os");
 
 let sock;
+let isReconnecting = false;
 
 async function startBot() {
+    if (isReconnecting) return;
+    
     const sessionDir = path.join(os.homedir(), ".pipclaw", "wa_auth");
     if (!fs.existsSync(path.dirname(sessionDir))) {
         fs.mkdirSync(path.dirname(sessionDir), { recursive: true });
@@ -26,21 +29,31 @@ async function startBot() {
 
     sock.ev.on("creds.update", saveCreds);
 
-    sock.ev.on("connection.update", (update) => {
+    sock.ev.on("connection.update", async (update) => {
         const { connection, lastDisconnect, qr } = update;
         
         if (qr) {
             console.log("\n--- SCAN THIS QR CODE WITH WHATSAPP ---");
-            // On Windows, 'small: true' often causes character display issues in standard CMD/PowerShell.
-            // Using standard blocks (small: false) is more robust for scannability.
             const isWindows = process.platform === "win32";
             qrcode.generate(qr, { small: !isWindows });
         }
 
         if (connection === "close") {
-            const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            if (shouldReconnect) startBot();
+            const statusCode = lastDisconnect.error?.output?.statusCode;
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+            
+            if (shouldReconnect && !isReconnecting) {
+                isReconnecting = true;
+                console.log("[*] Bridge: Connection closed, reconnecting in 3s...");
+                setTimeout(() => {
+                    isReconnecting = false;
+                    startBot();
+                }, 3000);
+            } else if (statusCode === DisconnectReason.loggedOut) {
+                console.log("[!] Bridge: Logged out. Please delete auth folder and restart.");
+            }
         } else if (connection === "open") {
+            isReconnecting = false;
             console.log("JSON_EVENT:" + JSON.stringify({ 
                 type: "connected", 
                 me: sock.user.id 

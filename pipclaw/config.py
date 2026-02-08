@@ -59,7 +59,8 @@ class ConfigManager(object):
         "- file_read(path)\n"
         "- file_write(path, content)\n"
         "- file_upload(path)\n"
-        "- wait(seconds)"
+        "- wait(seconds)\n"
+        "- reset_session() Use this when the user asks for a 'new session', 'fresh start', or to 'clear history'."
     )
 
     DEFAULT_CONFIG = {
