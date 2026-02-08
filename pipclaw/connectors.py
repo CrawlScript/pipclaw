@@ -69,6 +69,7 @@ class WhatsAppConnector(object):
         self.last_sent_text = None
         self.bridge_path = os.path.join(os.path.dirname(__file__), "bridge.js")
         self.is_windows = os.name == 'nt'
+        self._deps_checked = False
 
     def _ensure_node(self):
         if not shutil.which("node"):
@@ -88,23 +89,43 @@ class WhatsAppConnector(object):
         return env
 
     def _ensure_deps(self):
-        # Check global first using npm list -g
-        check_global = subprocess.run(["npm", "list", "-g", "@whiskeysockets/baileys", "--depth=0"], capture_output=True, shell=self.is_windows)
-        if check_global.returncode == 0:
+        if self._deps_checked:
+            return
+        
+        deps = ["@whiskeysockets/baileys", "qrcode-terminal", "pino"]
+        missing = []
+
+        print("[*] Verifying WhatsApp bridge dependencies...")
+        for dep in deps:
+            # Check global first
+            check_global = subprocess.run(["npm", "list", "-g", dep, "--depth=0"], capture_output=True, shell=self.is_windows)
+            if check_global.returncode == 0:
+                continue
+            
+            # Check local
+            check_local = subprocess.run(["npm", "list", dep, "--depth=0"], capture_output=True, shell=self.is_windows)
+            if check_local.returncode == 0:
+                continue
+            
+            missing.append(dep)
+
+        if not missing:
+            self._deps_checked = True
             return
 
-        # Check local using npm list
-        check_local = subprocess.run(["npm", "list", "@whiskeysockets/baileys", "--depth=0"], capture_output=True, shell=self.is_windows)
-        if check_local.returncode == 0:
-            return
+        print(f"[!] Missing: {', '.join(missing)}")
+        print(f"[*] Installing dependencies: {', '.join(missing)}...")
 
-        print("[*] Installing WhatsApp bridge dependencies globally...")
         try:
-            # Attempt global install as requested
-            subprocess.run(["npm", "install", "-g", "@whiskeysockets/baileys", "qrcode-terminal", "pino"], check=True, shell=self.is_windows)
+            # Attempt global install
+            print("[*] Running: npm install -g " + " ".join(missing))
+            subprocess.run(["npm", "install", "-g"] + missing, check=True, shell=self.is_windows)
         except subprocess.CalledProcessError:
             print("[!] Global install failed. Attempting local install...")
-            subprocess.run(["npm", "install", "@whiskeysockets/baileys", "qrcode-terminal", "pino"], check=True, shell=self.is_windows)
+            print("[*] Running: npm install " + " ".join(missing))
+            subprocess.run(["npm", "install"] + missing, check=True, shell=self.is_windows)
+        
+        self._deps_checked = True
 
     def listen(self, callback):
         if not self._ensure_node(): return
