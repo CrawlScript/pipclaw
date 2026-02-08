@@ -148,10 +148,9 @@ def main():
     args = parser.parse_args()
 
     config = ConfigManager.load()
-    config["debug"] = args.debug  # Store debug state in config dict for easy passing
     
     if args.command == "config":
-        config = run_setup(config)
+        run_setup(config)
         return
     
     # Empty command or 'run' both trigger the agent
@@ -161,6 +160,8 @@ def main():
 
     if not config:
         config = run_setup()
+
+    config["debug"] = args.debug  # Store debug state in config dict for easy passing
 
     # Mode Dispatch
     mode = config.get("preferred_mode")
